@@ -1,0 +1,5 @@
+.env
+.gitlab-flow.json
+node_modules
+*.tgz
+.DS_Store

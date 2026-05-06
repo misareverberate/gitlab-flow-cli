@@ -1,0 +1,39 @@
+<svg width="920" height="420" viewBox="0 0 920 420" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="title desc">
+  <title id="title">Demo animada do GitLab Flow CLI</title>
+  <desc id="desc">Simulação visual do fluxo gl-work start e gl-work mr em estilo terminal.</desc>
+  <rect width="920" height="420" rx="24" fill="#0E1412"/>
+  <rect x="32" y="28" width="856" height="364" rx="18" fill="#111C18" stroke="#29443A"/>
+  <rect x="32" y="28" width="856" height="42" rx="18" fill="#0D1613"/>
+  <circle cx="62" cy="49" r="6" fill="#FF5F57"/>
+  <circle cx="82" cy="49" r="6" fill="#FEBC2E"/>
+  <circle cx="102" cy="49" r="6" fill="#28C840"/>
+  <text x="460" y="55" text-anchor="middle" fill="#93B8A8" font-family="ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace" font-size="14">demo · gl-work</text>
+
+  <g font-family="ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace" font-size="21">
+    <text x="62" y="116" fill="#F59E0B">$ gl-work start</text>
+    <text x="62" y="156" fill="#D7E9E0" opacity="0">
+      Título do issue: Adicionar login com SSO
+      <animate attributeName="opacity" values="0;0;1;1" dur="8s" repeatCount="indefinite"/>
+    </text>
+    <text x="62" y="192" fill="#D7E9E0" opacity="0">
+      Issue criado: #42
+      <animate attributeName="opacity" values="0;0;0;1;1" dur="8s" repeatCount="indefinite"/>
+    </text>
+    <text x="62" y="228" fill="#FCD34D" opacity="0">
+      Branch criada: feat(#42)/adicionar-login-com-sso
+      <animate attributeName="opacity" values="0;0;0;0;1;1" dur="8s" repeatCount="indefinite"/>
+    </text>
+    <text x="62" y="284" fill="#F59E0B" opacity="0">
+      $ gl-work mr
+      <animate attributeName="opacity" values="0;0;0;0;0;1;1" dur="8s" repeatCount="indefinite"/>
+    </text>
+    <text x="62" y="320" fill="#D7E9E0" opacity="0">
+      MR criado: !17
+      <animate attributeName="opacity" values="0;0;0;0;0;0;1;1" dur="8s" repeatCount="indefinite"/>
+    </text>
+    <text x="62" y="356" fill="#A7F3D0" opacity="0">
+      Issue #42 movido para review
+      <animate attributeName="opacity" values="0;0;0;0;0;0;0;1" dur="8s" repeatCount="indefinite"/>
+    </text>
+  </g>
+</svg>
