@@ -182,9 +182,10 @@ O comando:
 1. detecta o issue pela branch
 2. faz `git push -u origin`
 3. pergunta a descrição adicional da MR
-4. monta a descrição final com `Closes #<iid>`
-5. cria a MR com assignee e reviewer
-6. move o issue para review
+4. pergunta a branch alvo da MR
+5. monta a descrição final com `Closes #<iid>`
+6. cria a MR com assignee e reviewer
+7. move o issue para review
 
 Em português simples: esse comando pega a branch em que você está, sobe ela para o GitLab e abre a Merge Request para você.
 

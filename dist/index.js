@@ -145,12 +145,17 @@ async function mr(config) {
         message: "Descricao adicional do Merge Request",
         default: ""
     });
+    const targetBranch = await input({
+        message: "Branch alvo do MR",
+        default: config.defaultTargetBranch,
+        validate: (value) => value.trim() ? true : "Informe a branch alvo."
+    });
     const mrDescription = mrExtraDescription.trim()
         ? `Closes #${issueIid}\n\n${mrExtraDescription.trim()}`
         : `Closes #${issueIid}`;
     const mergeRequest = await api.createMergeRequest({
         sourceBranch: branch,
-        targetBranch: config.defaultTargetBranch,
+        targetBranch: targetBranch.trim(),
         title: mrTitle,
         description: mrDescription,
         assigneeId: currentUser.id,
@@ -166,6 +171,7 @@ async function mr(config) {
     await api.updateIssueLabels(issueIid, finalLabels);
     console.log(`\nMR criado: !${mergeRequest.iid}`);
     console.log(mergeRequest.web_url);
+    console.log(`Target branch: ${targetBranch.trim()}`);
     console.log(`Issue #${issueIid} movido para ${config.reviewLabel}`);
 }
 async function main() {
