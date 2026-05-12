@@ -1,21 +1,25 @@
 {
   "name": "gitlab-flow-cli",
   "version": "0.1.0",
-  "private": true,
   "description": "CLI simples para abrir issues, criar branches e subir merge requests no GitLab com um fluxo padronizado.",
   "license": "MIT",
   "type": "module",
+  "main": "./dist/index.js",
   "files": [
     "dist",
     ".env.example",
-    "README.md"
+    "README.md",
+    "LICENSE"
   ],
+  "publishConfig": {
+    "access": "public"
+  },
   "bin": {
-    "gl-work": "./dist/index.js"
+    "gl-work": "dist/index.js"
   },
   "scripts": {
     "dev": "tsx src/index.ts",
-    "build": "tsc",
+    "build": "tsc && node -e \"require('node:fs').chmodSync('dist/index.js', 0o755)\"",
     "check": "npm run build",
     "prepare": "npm run build",
     "prepack": "npm run build",
