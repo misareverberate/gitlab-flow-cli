@@ -2,7 +2,14 @@ export type GitLabLabel = { name: string; color?: string; description?: string }
 export type GitLabMember = { id: number; username: string; name: string };
 export type GitLabMilestone = { id: number; title: string; state: string; due_date?: string | null };
 export type GitLabIssue = { iid: number; web_url: string; title: string; labels: string[] };
-export type GitLabMR = { iid: number; web_url: string; title: string };
+export type GitLabMR = {
+  iid: number;
+  web_url: string;
+  title: string;
+  source_branch?: string;
+  target_branch?: string;
+  state?: string;
+};
 export type GitLabUser = { id: number; username: string; name: string };
 export type GitLabConfig = {
   baseUrl: string;
@@ -108,5 +115,15 @@ export class GitLabClient {
         ...(input.reviewerId ? { reviewer_ids: [input.reviewerId] } : {})
       })
     });
+  }
+
+  async getOpenMergeRequestForBranch(sourceBranch: string): Promise<GitLabMR | null> {
+    const params = new URLSearchParams({
+      state: "opened",
+      source_branch: sourceBranch,
+      per_page: "1"
+    });
+    const mergeRequests = await this.request<GitLabMR[]>(`/projects/${this.project}/merge_requests?${params.toString()}`);
+    return mergeRequests[0] ?? null;
   }
 }

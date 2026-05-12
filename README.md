@@ -62,6 +62,7 @@ O `gl-work` junta em um fluxo único o que normalmente fica espalhado entre GitL
 - cria a merge request com reviewer
 - preserva `Closes #<iid>` na descrição da MR
 - move o issue para a label de review
+- mostra o status local do fluxo salvo
 
 ## Quick Start
 
@@ -165,11 +166,14 @@ Inicia um novo fluxo de trabalho.
 
 O comando:
 
-1. pede tipo, título e descrição
-2. carrega labels, membros e milestones do projeto
-3. cria o issue
-4. cria a branch local
-5. salva o reviewer para reaproveitar no `mr`
+1. valida se o diretório é um repo Git e se existe remote `origin`
+2. avisa se há mudanças locais não commitadas
+3. pede tipo, título e descrição
+4. carrega labels, membros e milestones do projeto
+5. mostra um resumo para confirmar, corrigir campos ou cancelar
+6. cria o issue
+7. cria a branch local
+8. salva o reviewer para reaproveitar no `mr`
 
 Em português simples: esse comando cria o cartão no GitLab e já deixa sua branch pronta para você começar a programar.
 
@@ -180,14 +184,31 @@ Abre a merge request a partir da branch atual.
 O comando:
 
 1. detecta o issue pela branch
-2. faz `git push -u origin`
-3. pergunta a descrição adicional da MR
-4. pergunta a branch alvo da MR
-5. monta a descrição final com `Closes #<iid>`
-6. cria a MR com assignee e reviewer
-7. move o issue para review
+2. verifica se já existe MR aberta para a branch atual
+3. pergunta reviewer, descrição adicional e branch alvo da MR
+4. mostra um resumo para confirmar, corrigir campos ou cancelar
+5. faz `git push -u origin`
+6. monta a descrição final com `Closes #<iid>`
+7. cria a MR com assignee e reviewer
+8. move o issue para review
 
 Em português simples: esse comando pega a branch em que você está, sobe ela para o GitLab e abre a Merge Request para você.
+
+Nas descrições, a CLI deixa você escolher entre abrir um editor completo ou digitar/colar direto no terminal. Antes de criar o issue ou a MR, ela mostra um resumo e permite corrigir campos como título, descrição, labels, reviewer e branch alvo.
+
+Se algo falhar no meio do caminho, a CLI mostra o que já aconteceu, como issue criado, branch esperada ou MR criada, e sugere consultar o status do fluxo.
+
+### `gl-work status`
+
+Mostra o estado local do fluxo no diretório atual.
+
+O comando mostra:
+
+1. branch atual
+2. se existe remote `origin`
+3. se há mudanças locais
+4. issue, branch esperada, labels e reviewer salvos
+5. MR aberta para a branch atual, quando existir
 
 ### `gl-work config`
 
@@ -222,6 +243,12 @@ Descrição final da MR:
 Closes #42
 
 Descrição adicional escrita no prompt
+```
+
+### Ver status do fluxo
+
+```bash
+gl-work status
 ```
 
 ## Stack

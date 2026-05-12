@@ -71,4 +71,13 @@ export class GitLabClient {
             })
         });
     }
+    async getOpenMergeRequestForBranch(sourceBranch) {
+        const params = new URLSearchParams({
+            state: "opened",
+            source_branch: sourceBranch,
+            per_page: "1"
+        });
+        const mergeRequests = await this.request(`/projects/${this.project}/merge_requests?${params.toString()}`);
+        return mergeRequests[0] ?? null;
+    }
 }
