@@ -5,6 +5,14 @@
   "license": "MIT",
   "type": "module",
   "main": "./dist/index.js",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/misareverberate/gitlab-flow-cli.git"
+  },
+  "bugs": {
+    "url": "https://github.com/misareverberate/gitlab-flow-cli/issues"
+  },
+  "homepage": "https://github.com/misareverberate/gitlab-flow-cli#readme",
   "files": [
     "dist",
     ".env.example",
