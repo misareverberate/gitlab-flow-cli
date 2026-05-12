@@ -37,6 +37,12 @@ export class GitLabClient {
     async getIssue(issueIid) {
         return this.request(`/projects/${this.project}/issues/${issueIid}`);
     }
+    async closeIssue(issueIid) {
+        return this.request(`/projects/${this.project}/issues/${issueIid}`, {
+            method: "PUT",
+            body: JSON.stringify({ state_event: "close" })
+        });
+    }
     async createIssue(input) {
         return this.request(`/projects/${this.project}/issues`, {
             method: "POST",
@@ -79,5 +85,45 @@ export class GitLabClient {
         });
         const mergeRequests = await this.request(`/projects/${this.project}/merge_requests?${params.toString()}`);
         return mergeRequests[0] ?? null;
+    }
+    async getMergeRequest(mergeRequestIid) {
+        return this.request(`/projects/${this.project}/merge_requests/${mergeRequestIid}?with_merge_status_recheck=true`);
+    }
+    async getMergeRequestApprovals(mergeRequestIid) {
+        return this.request(`/projects/${this.project}/merge_requests/${mergeRequestIid}/approvals`);
+    }
+    async getMergeRequestPipelines(mergeRequestIid) {
+        return this.request(`/projects/${this.project}/merge_requests/${mergeRequestIid}/pipelines?per_page=20`);
+    }
+    async getMergeRequestDiscussions(mergeRequestIid) {
+        return this.request(`/projects/${this.project}/merge_requests/${mergeRequestIid}/discussions?per_page=100`);
+    }
+    async getIssuesClosingOnMerge(mergeRequestIid) {
+        return this.request(`/projects/${this.project}/merge_requests/${mergeRequestIid}/closes_issues`);
+    }
+    async getRelatedIssues(mergeRequestIid) {
+        return this.request(`/projects/${this.project}/merge_requests/${mergeRequestIid}/related_issues`);
+    }
+    async approveMergeRequest(mergeRequestIid, sha) {
+        return this.request(`/projects/${this.project}/merge_requests/${mergeRequestIid}/approve`, {
+            method: "POST",
+            body: JSON.stringify(sha ? { sha } : {})
+        });
+    }
+    async createMergeRequestNote(mergeRequestIid, body) {
+        return this.request(`/projects/${this.project}/merge_requests/${mergeRequestIid}/notes`, {
+            method: "POST",
+            body: JSON.stringify({ body })
+        });
+    }
+    async mergeMergeRequest(input) {
+        return this.request(`/projects/${this.project}/merge_requests/${input.mergeRequestIid}/merge`, {
+            method: "PUT",
+            body: JSON.stringify({
+                ...(input.sha ? { sha: input.sha } : {}),
+                squash: input.squash ?? false,
+                should_remove_source_branch: input.shouldRemoveSourceBranch ?? true
+            })
+        });
     }
 }

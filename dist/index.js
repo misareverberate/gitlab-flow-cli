@@ -2,8 +2,10 @@
 import { createInterface } from "node:readline/promises";
 import { checkbox, input, select, confirm, editor } from "@inquirer/prompts";
 import { execa } from "execa";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import { GitLabClient } from "./gitlab.js";
-import { configureCli, ensureRuntimeConfig, loadEnv, readProjectStateFile, writeProjectStateFile } from "./config.js";
+import { clearProjectStateFile, configureCli, ensureRuntimeConfig, loadEnv, readProjectStateFile, writeProjectStateFile } from "./config.js";
 loadEnv(import.meta.url);
 const TYPES = ["feat", "fix", "docs", "style", "refactor", "test", "chore"];
 class FlowCancelled extends Error {
@@ -26,6 +28,9 @@ async function gitOutput(args) {
 async function gitOk(args) {
     const result = await execa("git", args, { reject: false });
     return result.exitCode === 0;
+}
+async function gitResult(args) {
+    return execa("git", args, { reject: false });
 }
 async function ensureGitRepository() {
     const isInsideGitRepo = await gitOk(["rev-parse", "--is-inside-work-tree"]);
@@ -61,6 +66,9 @@ async function branchExists(branch) {
     const hasLocalBranch = await gitOk(["show-ref", "--verify", "--quiet", `refs/heads/${branch}`]);
     const hasFetchedRemoteBranch = await gitOk(["show-ref", "--verify", "--quiet", `refs/remotes/origin/${branch}`]);
     return hasLocalBranch || hasFetchedRemoteBranch;
+}
+async function localBranchExists(branch) {
+    return gitOk(["show-ref", "--verify", "--quiet", `refs/heads/${branch}`]);
 }
 function labelChoices(labels, preselected = []) {
     return labels.map((label) => ({
@@ -145,6 +153,96 @@ function descriptionPreview(description) {
         return "vazia";
     const firstLine = description.trim().split("\n")[0];
     return description.includes("\n") ? `${firstLine}...` : firstLine;
+}
+function parseIssueIidFromText(value) {
+    if (!value)
+        return null;
+    const closingMatch = value.match(/(?:Closes|Close|Fixes|Fix|Resolves|Resolve)\s+(?:[\w./-]+)?#(\d+)/i);
+    const genericMatch = value.match(/(?:^|\s)(?:[\w./-]+)?#(\d+)/);
+    const raw = closingMatch?.[1] ?? genericMatch?.[1];
+    return raw ? Number(raw) : null;
+}
+function compactList(values, limit = 8) {
+    if (values.length <= limit)
+        return values;
+    return [...values.slice(0, limit), `... +${values.length - limit}`];
+}
+function unique(values) {
+    return Array.from(new Set(values.filter(Boolean)));
+}
+function unresolvedDiscussions(discussions) {
+    return discussions.filter((discussion) => discussion.notes.some((note) => note.resolvable && !note.resolved));
+}
+function discussionSummary(mr, discussions) {
+    return discussions.flatMap((discussion) => discussion.notes
+        .filter((note) => note.resolvable && !note.resolved)
+        .map((note) => {
+        const author = note.author ? `${note.author.name} (@${note.author.username})` : "autor desconhecido";
+        const firstLine = note.body.split("\n")[0]?.trim() || "Discussão sem texto";
+        return `${author}: ${firstLine} (${mr.web_url}#note_${note.id})`;
+    }));
+}
+function latestPipeline(pipelines) {
+    return pipelines[0] ?? null;
+}
+function pipelineAllowsMerge(pipeline) {
+    return !pipeline || ["success", "skipped"].includes(pipeline.status);
+}
+function blockingMergeStatus(mr) {
+    const status = mr.detailed_merge_status ?? mr.merge_status;
+    if (!status)
+        return null;
+    const blockingStatuses = new Set([
+        "approvals_syncing",
+        "checking",
+        "ci_must_pass",
+        "ci_still_running",
+        "commits_status",
+        "conflict",
+        "discussions_not_resolved",
+        "draft_status",
+        "jira_association_missing",
+        "merge_request_blocked",
+        "merge_time",
+        "need_rebase",
+        "not_approved",
+        "not_open",
+        "preparing",
+        "requested_changes",
+        "security_policy_violations",
+        "unchecked"
+    ]);
+    return blockingStatuses.has(status) ? status : null;
+}
+function reportLines(context) {
+    const { mr, approvals, latestPipeline: pipeline, unresolvedDiscussions: discussions, closingIssues, relatedIssues, analysis } = context;
+    const issueList = closingIssues.length ? closingIssues : relatedIssues;
+    return [
+        `# Revisão da MR !${mr.iid}`,
+        "",
+        `**Título:** ${mr.title}`,
+        `**URL:** ${mr.web_url}`,
+        `**Estado:** ${mr.state ?? "desconhecido"}`,
+        `**Branch:** ${mr.source_branch} -> ${mr.target_branch}`,
+        `**Autor:** ${mr.author ? `${mr.author.name} (@${mr.author.username})` : "desconhecido"}`,
+        `**Pipeline:** ${pipeline ? `${pipeline.status} (#${pipeline.id})` : "nenhum encontrado"}`,
+        `**Aprovações restantes:** ${approvals?.approvals_left ?? "desconhecido"}`,
+        `**Discussões pendentes:** ${discussions.length}`,
+        `**Issues relacionadas:** ${issueList.length ? issueList.map((issue) => `#${issue.iid}`).join(", ") : "nenhuma"}`,
+        "",
+        "## Análise local",
+        analysis
+            ? `Merge simulado: ${analysis.mergeCheck === "clean" ? "sem conflito Git" : analysis.mergeCheck === "conflict" ? "conflito detectado" : "inconclusivo"}`
+            : "Análise local ainda não executada.",
+        analysis ? `Arquivos da MR: ${analysis.mrFiles.length}` : "",
+        analysis ? `Arquivos sobrepostos com a branch alvo: ${analysis.overlapFiles.length}` : "",
+        ...(analysis?.overlapFiles.length ? ["", "Arquivos sobrepostos:", ...compactList(analysis.overlapFiles, 20).map((file) => `- ${file}`)] : []),
+        ...(analysis?.warnings.length ? ["", "Avisos:", ...compactList(analysis.warnings, 20).map((warning) => `- ${warning}`)] : []),
+        ...(discussions.length ? ["", "Discussões pendentes:", ...compactList(discussionSummary(mr, discussions), 20).map((item) => `- ${item}`)] : [])
+    ].filter((line) => line !== "");
+}
+function formatReviewReport(context) {
+    return reportLines(context).join("\n");
 }
 function printStartDraft(draft, members, milestones) {
     console.log("\nResumo do issue:");
@@ -477,6 +575,361 @@ async function mr(config) {
     console.log(`Target branch: ${draft.targetBranch.trim()}`);
     console.log(`Issue #${issueIid} movido para ${config.reviewLabel}`);
 }
+async function resolveReviewMergeRequest(api, mergeRequestArg) {
+    if (mergeRequestArg) {
+        const normalized = mergeRequestArg.replace(/^!/, "");
+        const iid = Number(normalized);
+        if (!Number.isInteger(iid) || iid <= 0)
+            throw new Error("Informe a MR como número ou !número. Exemplo: gl-work review !123");
+        return api.getMergeRequest(iid);
+    }
+    const branch = await currentBranch();
+    const mergeRequest = await api.getOpenMergeRequestForBranch(branch);
+    if (!mergeRequest) {
+        throw new Error("Não encontrei MR aberta para a branch atual. Use `gl-work review !123` para informar uma MR específica.");
+    }
+    return mergeRequest;
+}
+function parseReviewArgs() {
+    const args = process.argv.slice(3);
+    return {
+        mergeRequestArg: args.find((arg) => !arg.startsWith("--")),
+        report: args.includes("--report"),
+        commentReport: args.includes("--comment-report")
+    };
+}
+async function refExists(ref) {
+    return gitOk(["rev-parse", "--verify", ref]);
+}
+async function changedFiles(from, to) {
+    const result = await gitResult(["diff", "--name-only", `${from}..${to}`]);
+    if (result.exitCode !== 0)
+        return [];
+    return result.stdout.split("\n").map((line) => line.trim()).filter(Boolean);
+}
+function reviewWarnings(overlapFiles, mrFiles) {
+    const centralFiles = mrFiles.filter((file) => /(^|\/)(package(-lock)?\.json|pnpm-lock\.yaml|yarn\.lock|README\.md|CHANGELOG\.md)$/i.test(file) ||
+        /(routes?|roles?|permissions?|config|enum|migration|translations?|locales?)/i.test(file));
+    return [
+        ...overlapFiles.map((file) => `Arquivo também mudou na branch alvo: ${file}`),
+        ...centralFiles.map((file) => `Arquivo central exige revisão cuidadosa: ${file}`)
+    ];
+}
+async function analyzeMergeRequest(mr) {
+    const sourceRef = `origin/${mr.source_branch}`;
+    const targetRef = `origin/${mr.target_branch}`;
+    const fetchResult = await gitResult(["fetch", "origin"]);
+    const fetched = fetchResult.exitCode === 0;
+    if (!fetched || !(await refExists(sourceRef)) || !(await refExists(targetRef))) {
+        return {
+            fetched,
+            mergeCheck: "unknown",
+            mrFiles: [],
+            targetFiles: [],
+            overlapFiles: [],
+            warnings: ["Não consegui atualizar as branches remotas para análise local."]
+        };
+    }
+    const base = await gitOutput(["merge-base", sourceRef, targetRef]);
+    const [mrFiles, targetFiles] = await Promise.all([
+        changedFiles(base, sourceRef),
+        changedFiles(base, targetRef)
+    ]);
+    const overlapFiles = mrFiles.filter((file) => targetFiles.includes(file));
+    const mergeTree = await gitResult(["merge-tree", "--write-tree", targetRef, sourceRef]);
+    const mergeCheck = mergeTree.exitCode === 0
+        ? "clean"
+        : /unknown option|usage:/i.test(mergeTree.stderr)
+            ? "unknown"
+            : "conflict";
+    return {
+        fetched,
+        mergeCheck,
+        mrFiles,
+        targetFiles,
+        overlapFiles,
+        warnings: unique(reviewWarnings(overlapFiles, mrFiles))
+    };
+}
+function printReviewSummary(context) {
+    const { mr, approvals, latestPipeline: pipeline, unresolvedDiscussions: discussions, closingIssues, relatedIssues, analysis } = context;
+    console.log("\nResumo da revisão");
+    console.log(`MR: !${mr.iid} ${mr.title}`);
+    console.log(mr.web_url);
+    console.log(`Estado: ${mr.state ?? "desconhecido"}`);
+    console.log(`Branch: ${mr.source_branch} -> ${mr.target_branch}`);
+    console.log(`Autor: ${mr.author ? `${mr.author.name} (@${mr.author.username})` : "desconhecido"}`);
+    console.log(`Reviewers: ${mr.reviewers?.length ? mr.reviewers.map((r) => `${r.name} (@${r.username})`).join(", ") : "nenhum"}`);
+    console.log(`Discussões resolvidas: ${mr.blocking_discussions_resolved === false ? "não" : "sim/desconhecido"}`);
+    console.log(`Status de merge GitLab: ${mr.detailed_merge_status ?? mr.merge_status ?? "desconhecido"}`);
+    if (approvals) {
+        console.log(`Aprovações restantes: ${approvals.approvals_left ?? "desconhecido"}`);
+        console.log(`Aprovado por: ${approvals.approved_by?.map((item) => item.user.name).join(", ") || "ninguém"}`);
+    }
+    console.log(`Pipeline: ${pipeline ? `${pipeline.status} (#${pipeline.id})` : "nenhum encontrado"}`);
+    console.log(`Discussões pendentes: ${discussions.length}`);
+    console.log(`Issues que fecham no merge: ${closingIssues.length ? closingIssues.map((issue) => `#${issue.iid}`).join(", ") : "nenhuma"}`);
+    console.log(`Issues relacionadas: ${relatedIssues.length ? relatedIssues.map((issue) => `#${issue.iid}`).join(", ") : "nenhuma"}`);
+    if (!analysis)
+        return;
+    console.log("\nAnálise local");
+    console.log(`Merge simulado: ${analysis.mergeCheck === "clean" ? "sem conflito Git" : analysis.mergeCheck === "conflict" ? "conflito detectado" : "inconclusivo"}`);
+    console.log(`Arquivos da MR: ${analysis.mrFiles.length}`);
+    console.log(`Arquivos também alterados na branch alvo: ${analysis.overlapFiles.length}`);
+    for (const file of compactList(analysis.overlapFiles))
+        console.log(`- ${file}`);
+    if (analysis.warnings.length) {
+        console.log("\nAtenção:");
+        for (const warning of compactList(analysis.warnings, 10))
+            console.log(`- ${warning}`);
+    }
+}
+async function commentOnMergeRequest(api, mr, title = "Comentário de revisão") {
+    const body = await longTextInput(title);
+    if (!body.trim()) {
+        console.log("\nComentário vazio. Nada foi enviado.");
+        return;
+    }
+    const shouldSend = await confirm({ message: "Enviar comentário na MR?", default: true });
+    if (!shouldSend)
+        throw new FlowCancelled();
+    await api.createMergeRequestNote(mr.iid, body.trim());
+    console.log("\nComentário enviado.");
+}
+async function requestChanges(api, mr, analysis) {
+    const defaultBody = [
+        "## Ajustes solicitados",
+        "",
+        analysis?.warnings.length ? "Pontos de atenção encontrados:" : "",
+        ...compactList(analysis?.warnings ?? [], 8).map((warning) => `- ${warning}`),
+        "",
+        "Descreva aqui os ajustes necessários."
+    ].filter(Boolean).join("\n");
+    const body = await longTextInput("Mensagem de ajustes", defaultBody);
+    if (!body.trim()) {
+        console.log("\nMensagem vazia. Nada foi enviado.");
+        return;
+    }
+    const shouldSend = await confirm({ message: "Postar pedido de ajustes na MR?", default: true });
+    if (!shouldSend)
+        throw new FlowCancelled();
+    await api.createMergeRequestNote(mr.iid, body.trim());
+    console.log("\nPedido de ajustes enviado.");
+}
+async function postReviewReport(api, context) {
+    const body = formatReviewReport(context);
+    console.log(`\n${body}`);
+    const shouldPost = await confirm({ message: "Postar este relatório na MR?", default: true });
+    if (!shouldPost)
+        throw new FlowCancelled();
+    await api.createMergeRequestNote(context.mr.iid, body);
+    console.log("\nRelatório postado na MR.");
+}
+async function approveMergeRequest(api, context) {
+    printReviewSummary(context);
+    if (context.analysis?.mergeCheck === "conflict") {
+        const proceed = await confirm({ message: "Há conflito Git detectado. Aprovar mesmo assim?", default: false });
+        if (!proceed)
+            throw new FlowCancelled();
+    }
+    if (context.analysis?.warnings.length) {
+        const proceed = await confirm({ message: "Há avisos de risco. Aprovar mesmo assim?", default: false });
+        if (!proceed)
+            throw new FlowCancelled();
+    }
+    if (!pipelineAllowsMerge(context.latestPipeline)) {
+        const proceed = await confirm({ message: `O pipeline está "${context.latestPipeline?.status}". Aprovar mesmo assim?`, default: false });
+        if (!proceed)
+            throw new FlowCancelled();
+    }
+    if (context.unresolvedDiscussions.length) {
+        const proceed = await confirm({ message: `Há ${context.unresolvedDiscussions.length} discussão(ões) pendente(s). Aprovar mesmo assim?`, default: false });
+        if (!proceed)
+            throw new FlowCancelled();
+    }
+    const shouldApprove = await confirm({ message: `Aprovar MR !${context.mr.iid}?`, default: true });
+    if (!shouldApprove)
+        throw new FlowCancelled();
+    await api.approveMergeRequest(context.mr.iid, context.mr.sha);
+    console.log("\nMR aprovada.");
+}
+async function loadReviewContext(api, mr, analysis) {
+    const [approvals, pipelines, discussions, closingIssues, relatedIssues] = await Promise.all([
+        api.getMergeRequestApprovals(mr.iid).catch(() => null),
+        api.getMergeRequestPipelines(mr.iid).catch(() => []),
+        api.getMergeRequestDiscussions(mr.iid).catch(() => []),
+        api.getIssuesClosingOnMerge(mr.iid).catch(() => []),
+        api.getRelatedIssues(mr.iid).catch(() => [])
+    ]);
+    return {
+        mr,
+        approvals,
+        latestPipeline: latestPipeline(pipelines),
+        unresolvedDiscussions: unresolvedDiscussions(discussions),
+        closingIssues,
+        relatedIssues,
+        analysis
+    };
+}
+async function resolveIssueForMerge(mr, closingIssues, relatedIssues) {
+    const issue = closingIssues[0] ?? relatedIssues[0];
+    if (issue)
+        return issue.iid;
+    const parsedIssueIid = parseIssueIidFromText(`${mr.title}\n${mr.description ?? ""}`);
+    return parsedIssueIid;
+}
+async function checkoutMergeRequestWorktree(mr) {
+    await git(["fetch", "origin"]);
+    const worktreePath = path.join(tmpdir(), `gl-work-mr-${mr.iid}-${Date.now()}`);
+    await git(["worktree", "add", worktreePath, `origin/${mr.source_branch}`]);
+    console.log("\nWorktree criada para revisão local:");
+    console.log(worktreePath);
+    console.log("Você pode abrir esse diretório para revisar a MR sem mexer na branch atual.");
+}
+async function cleanupAfterMerge(targetBranch, sourceBranch) {
+    const shouldCleanup = await confirm({ message: "Fazer limpeza local pós-merge?", default: true });
+    if (!shouldCleanup)
+        return;
+    const current = await currentBranch();
+    if (current !== targetBranch) {
+        if (await localBranchExists(targetBranch)) {
+            await git(["checkout", targetBranch]);
+        }
+        else if (await refExists(`origin/${targetBranch}`)) {
+            await git(["checkout", "-B", targetBranch, `origin/${targetBranch}`]);
+        }
+        else {
+            console.warn(`Branch alvo origin/${targetBranch} não encontrada localmente. Pulando checkout/pull.`);
+            return;
+        }
+    }
+    await git(["pull", "--ff-only", "origin", targetBranch]);
+    if (await localBranchExists(sourceBranch)) {
+        const shouldDeleteBranch = await confirm({ message: `Remover branch local ${sourceBranch}?`, default: true });
+        if (shouldDeleteBranch)
+            await git(["branch", "-d", sourceBranch]);
+    }
+    const shouldClearState = await confirm({ message: "Limpar estado salvo do gl-work para este diretório?", default: true });
+    if (shouldClearState)
+        await clearProjectStateFile();
+}
+async function mergeReviewedMergeRequest(api, config, context) {
+    const freshMr = await api.getMergeRequest(context.mr.iid);
+    const freshContext = await loadReviewContext(api, freshMr, context.analysis);
+    const issueIid = await resolveIssueForMerge(freshMr, freshContext.closingIssues, freshContext.relatedIssues);
+    printReviewSummary(freshContext);
+    if (freshMr.state !== "opened")
+        throw new Error(`A MR !${freshMr.iid} não está aberta.`);
+    const blockedByMergeStatus = blockingMergeStatus(freshMr);
+    if (blockedByMergeStatus)
+        throw new Error(`GitLab indica que a MR não está pronta para merge: ${blockedByMergeStatus}.`);
+    if (freshMr.has_conflicts || freshContext.analysis?.mergeCheck === "conflict")
+        throw new Error("A MR tem conflito Git. Atualize a branch antes de mergear.");
+    if (freshMr.blocking_discussions_resolved === false || freshContext.unresolvedDiscussions.length)
+        throw new Error("A MR tem discussões pendentes.");
+    if (!pipelineAllowsMerge(freshContext.latestPipeline))
+        throw new Error(`Pipeline não está pronto para merge: ${freshContext.latestPipeline?.status}.`);
+    if ((freshContext.approvals?.approvals_left ?? 0) > 0) {
+        const proceed = await confirm({ message: `Ainda faltam ${freshContext.approvals?.approvals_left} aprovação(ões). Mergear mesmo assim?`, default: false });
+        if (!proceed)
+            throw new FlowCancelled();
+    }
+    if (!issueIid) {
+        const proceed = await confirm({ message: "Não encontrei issue vinculada no título/descrição. Mergear mesmo assim?", default: false });
+        if (!proceed)
+            throw new FlowCancelled();
+    }
+    const shouldMerge = await confirm({
+        message: `Mergear !${freshMr.iid} em ${freshMr.target_branch}?`,
+        default: false
+    });
+    if (!shouldMerge)
+        throw new FlowCancelled();
+    const merged = await api.mergeMergeRequest({
+        mergeRequestIid: freshMr.iid,
+        sha: freshMr.sha,
+        shouldRemoveSourceBranch: true
+    });
+    console.log("\nMR mergeada.");
+    console.log(merged.web_url);
+    if (issueIid) {
+        try {
+            const issue = await api.getIssue(issueIid);
+            const labelsWithoutState = issue.labels.filter((label) => ![config.reviewLabel, config.doingLabel].includes(label));
+            const finalLabels = Array.from(new Set([...labelsWithoutState, config.doneLabel]));
+            await api.updateIssueLabels(issueIid, finalLabels);
+            await api.closeIssue(issueIid);
+            console.log(`Issue #${issueIid} fechado no GitLab e movido para ${config.doneLabel}.`);
+        }
+        catch (error) {
+            console.error(`\nA MR foi mergeada, mas não consegui fechar o issue #${issueIid}.`);
+            console.error(error instanceof Error ? error.message : error);
+        }
+    }
+    await cleanupAfterMerge(freshMr.target_branch, freshMr.source_branch);
+}
+async function review(config) {
+    await ensureGitRepository();
+    await ensureOriginRemote();
+    const api = createGitLabClient(config);
+    const { mergeRequestArg, report, commentReport } = parseReviewArgs();
+    let mr = await resolveReviewMergeRequest(api, mergeRequestArg);
+    let analysis;
+    if (report || commentReport) {
+        analysis = await analyzeMergeRequest(mr);
+        const context = await loadReviewContext(api, mr, analysis);
+        const body = formatReviewReport(context);
+        console.log(`\n${body}`);
+        if (commentReport) {
+            await api.createMergeRequestNote(mr.iid, body);
+            console.log("\nRelatório postado na MR.");
+        }
+        return;
+    }
+    while (true) {
+        const context = await loadReviewContext(api, mr, analysis);
+        printReviewSummary(context);
+        const action = await select({
+            message: "O que você quer fazer?",
+            choices: [
+                { name: "Atualizar resumo da MR", value: "refresh" },
+                { name: "Checar riscos e conflitos", value: "analyze" },
+                { name: "Postar relatório da análise na MR", value: "post-report" },
+                { name: "Criar checkout seguro da MR", value: "checkout" },
+                { name: "Comentar na MR", value: "comment" },
+                { name: "Pedir ajustes", value: "changes" },
+                { name: "Aprovar MR", value: "approve" },
+                { name: "Mergear e fechar issue", value: "merge" },
+                { name: "Sair", value: "exit" }
+            ]
+        });
+        if (action === "exit")
+            return;
+        if (action === "refresh")
+            mr = await api.getMergeRequest(mr.iid);
+        if (action === "analyze") {
+            analysis = await analyzeMergeRequest(mr);
+            const analyzedContext = await loadReviewContext(api, mr, analysis);
+            printReviewSummary(analyzedContext);
+            const shouldPost = await confirm({ message: "Postar este relatório de análise na MR?", default: false });
+            if (shouldPost)
+                await postReviewReport(api, analyzedContext);
+        }
+        if (action === "post-report")
+            await postReviewReport(api, context);
+        if (action === "checkout")
+            await checkoutMergeRequestWorktree(mr);
+        if (action === "comment")
+            await commentOnMergeRequest(api, mr);
+        if (action === "changes")
+            await requestChanges(api, mr, analysis);
+        if (action === "approve")
+            await approveMergeRequest(api, context);
+        if (action === "merge")
+            await mergeReviewedMergeRequest(api, config, context);
+        mr = await api.getMergeRequest(mr.iid).catch(() => mr);
+    }
+}
 async function status(config) {
     await ensureGitRepository();
     const saved = await loadState();
@@ -530,12 +983,15 @@ async function main() {
         await start(config);
     else if (command === "mr")
         await mr(config);
+    else if (command === "review")
+        await review(config);
     else if (command === "status")
         await status(config);
     else {
         console.log("Uso:");
         console.log("  gl-work start");
         console.log("  gl-work mr");
+        console.log("  gl-work review [!iid] [--report|--comment-report]");
         console.log("  gl-work status");
         console.log("  gl-work config");
     }

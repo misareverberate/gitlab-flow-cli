@@ -62,6 +62,8 @@ O `gl-work` junta em um fluxo único o que normalmente fica espalhado entre GitL
 - cria a merge request com reviewer
 - preserva `Closes #<iid>` na descrição da MR
 - move o issue para a label de review
+- ajuda a revisar, aprovar e mergear MRs
+- fecha o issue relacionado após o merge
 - mostra o status local do fluxo salvo
 
 ## Quick Start
@@ -93,6 +95,7 @@ Agora entre na pasta do projeto em que você vai trabalhar, ou seja, o repositó
 cd /caminho/do/projeto-da-equipe
 gl-work start
 gl-work mr
+gl-work review
 ```
 
 Importante:
@@ -115,6 +118,10 @@ flowchart LR
   F --> G[Push da branch]
   G --> H[Criar merge request]
   H --> I[Mover issue para review]
+  I --> J[gl-work review]
+  J --> K[Aprovar ou pedir ajustes]
+  K --> L[Mergear MR]
+  L --> M[Fechar issue]
 ```
 
 ## Configuração
@@ -131,6 +138,7 @@ Você pode configurar pela `.env` ou usando o modo interativo da própria CLI.
 | `DEFAULT_TARGET_BRANCH` | branch alvo da MR | `main` |
 | `REVIEW_LABEL` | label aplicada ao abrir a MR | `review` |
 | `DOING_LABEL` | label padrão do issue em andamento | `doing` |
+| `DONE_LABEL` | label aplicada ao issue concluído | `done` |
 
 ### Exemplo de `.env`
 
@@ -143,6 +151,7 @@ GITLAB_PROJECT_PATH=graduacao/2026-1b/t24/g05
 DEFAULT_TARGET_BRANCH=main
 REVIEW_LABEL=review
 DOING_LABEL=doing
+DONE_LABEL=done
 ```
 
 ### Configuração interativa
@@ -198,6 +207,53 @@ Nas descrições, a CLI deixa você escolher entre abrir um editor completo ou d
 
 Se algo falhar no meio do caminho, a CLI mostra o que já aconteceu, como issue criado, branch esperada ou MR criada, e sugere consultar o status do fluxo.
 
+### `gl-work review`
+
+Abre um fluxo interativo para revisar uma MR.
+
+Você pode usar pela branch atual:
+
+```bash
+gl-work review
+```
+
+Ou informando a MR diretamente:
+
+```bash
+gl-work review !123
+```
+
+O comando permite:
+
+1. ver resumo da MR, autor, reviewers, branches, discussões e status de merge
+2. checar riscos e conflitos locais contra a branch alvo
+3. consultar o último pipeline da MR
+4. listar discussões pendentes com links
+5. comentar na MR
+6. postar relatório automático de análise
+7. pedir ajustes com uma mensagem guiada
+8. criar uma worktree segura da MR para revisar localmente
+9. aprovar a MR
+10. mergear a MR
+11. mover o issue para `DONE_LABEL` e fechar o issue relacionado após o merge
+12. limpar o ambiente local pós-merge, se você confirmar
+
+A checagem de risco faz `git fetch origin`, compara os arquivos da MR com o que mudou na branch alvo desde a base comum e simula o merge com Git local. Ela não altera a branch atual.
+
+Antes de aprovar ou mergear, a CLI mostra um resumo e pede confirmação. Se houver pipeline falhando, conflito Git, discussões pendentes ou aprovações faltando, ela avisa antes de continuar.
+
+Para gerar apenas um relatório sem abrir o menu:
+
+```bash
+gl-work review !123 --report
+```
+
+Para gerar e postar o relatório na MR:
+
+```bash
+gl-work review !123 --comment-report
+```
+
 ### `gl-work status`
 
 Mostra o estado local do fluxo no diretório atual.
@@ -249,6 +305,12 @@ Descrição adicional escrita no prompt
 
 ```bash
 gl-work status
+```
+
+### Revisar uma MR
+
+```bash
+gl-work review !42
 ```
 
 ## Stack

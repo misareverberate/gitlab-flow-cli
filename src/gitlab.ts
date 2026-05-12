@@ -1,16 +1,50 @@
 export type GitLabLabel = { name: string; color?: string; description?: string };
 export type GitLabMember = { id: number; username: string; name: string };
 export type GitLabMilestone = { id: number; title: string; state: string; due_date?: string | null };
-export type GitLabIssue = { iid: number; web_url: string; title: string; labels: string[] };
+export type GitLabIssue = { iid: number; web_url: string; title: string; labels: string[]; state?: string };
 export type GitLabMR = {
   iid: number;
   web_url: string;
   title: string;
-  source_branch?: string;
-  target_branch?: string;
+  description?: string;
+  source_branch: string;
+  target_branch: string;
   state?: string;
+  author?: GitLabUser;
+  reviewers?: GitLabUser[];
+  assignees?: GitLabUser[];
+  has_conflicts?: boolean;
+  merge_status?: string;
+  detailed_merge_status?: string;
+  blocking_discussions_resolved?: boolean;
+  user_notes_count?: number;
+  sha?: string;
 };
 export type GitLabUser = { id: number; username: string; name: string };
+export type GitLabMRApprovals = {
+  approvals_required?: number;
+  approvals_left?: number;
+  approved_by?: { user: GitLabUser }[];
+};
+export type GitLabPipeline = {
+  id: number;
+  sha: string;
+  ref: string;
+  status: string;
+  web_url?: string;
+};
+export type GitLabDiscussionNote = {
+  id: number;
+  body: string;
+  resolvable?: boolean;
+  resolved?: boolean;
+  author?: GitLabUser;
+};
+export type GitLabDiscussion = {
+  id: string;
+  individual_note?: boolean;
+  notes: GitLabDiscussionNote[];
+};
 export type GitLabConfig = {
   baseUrl: string;
   token: string;
@@ -64,6 +98,13 @@ export class GitLabClient {
 
   async getIssue(issueIid: number): Promise<GitLabIssue> {
     return this.request<GitLabIssue>(`/projects/${this.project}/issues/${issueIid}`);
+  }
+
+  async closeIssue(issueIid: number): Promise<GitLabIssue> {
+    return this.request<GitLabIssue>(`/projects/${this.project}/issues/${issueIid}`, {
+      method: "PUT",
+      body: JSON.stringify({ state_event: "close" })
+    });
   }
 
   async createIssue(input: {
@@ -125,5 +166,59 @@ export class GitLabClient {
     });
     const mergeRequests = await this.request<GitLabMR[]>(`/projects/${this.project}/merge_requests?${params.toString()}`);
     return mergeRequests[0] ?? null;
+  }
+
+  async getMergeRequest(mergeRequestIid: number): Promise<GitLabMR> {
+    return this.request<GitLabMR>(`/projects/${this.project}/merge_requests/${mergeRequestIid}?with_merge_status_recheck=true`);
+  }
+
+  async getMergeRequestApprovals(mergeRequestIid: number): Promise<GitLabMRApprovals> {
+    return this.request<GitLabMRApprovals>(`/projects/${this.project}/merge_requests/${mergeRequestIid}/approvals`);
+  }
+
+  async getMergeRequestPipelines(mergeRequestIid: number): Promise<GitLabPipeline[]> {
+    return this.request<GitLabPipeline[]>(`/projects/${this.project}/merge_requests/${mergeRequestIid}/pipelines?per_page=20`);
+  }
+
+  async getMergeRequestDiscussions(mergeRequestIid: number): Promise<GitLabDiscussion[]> {
+    return this.request<GitLabDiscussion[]>(`/projects/${this.project}/merge_requests/${mergeRequestIid}/discussions?per_page=100`);
+  }
+
+  async getIssuesClosingOnMerge(mergeRequestIid: number): Promise<GitLabIssue[]> {
+    return this.request<GitLabIssue[]>(`/projects/${this.project}/merge_requests/${mergeRequestIid}/closes_issues`);
+  }
+
+  async getRelatedIssues(mergeRequestIid: number): Promise<GitLabIssue[]> {
+    return this.request<GitLabIssue[]>(`/projects/${this.project}/merge_requests/${mergeRequestIid}/related_issues`);
+  }
+
+  async approveMergeRequest(mergeRequestIid: number, sha?: string): Promise<GitLabMRApprovals> {
+    return this.request<GitLabMRApprovals>(`/projects/${this.project}/merge_requests/${mergeRequestIid}/approve`, {
+      method: "POST",
+      body: JSON.stringify(sha ? { sha } : {})
+    });
+  }
+
+  async createMergeRequestNote(mergeRequestIid: number, body: string) {
+    return this.request<{ id: number; body: string }>(`/projects/${this.project}/merge_requests/${mergeRequestIid}/notes`, {
+      method: "POST",
+      body: JSON.stringify({ body })
+    });
+  }
+
+  async mergeMergeRequest(input: {
+    mergeRequestIid: number;
+    sha?: string;
+    squash?: boolean;
+    shouldRemoveSourceBranch?: boolean;
+  }): Promise<GitLabMR> {
+    return this.request<GitLabMR>(`/projects/${this.project}/merge_requests/${input.mergeRequestIid}/merge`, {
+      method: "PUT",
+      body: JSON.stringify({
+        ...(input.sha ? { sha: input.sha } : {}),
+        squash: input.squash ?? false,
+        should_remove_source_branch: input.shouldRemoveSourceBranch ?? true
+      })
+    });
   }
 }

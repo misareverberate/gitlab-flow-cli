@@ -1,6 +1,6 @@
 import { confirm, input, password } from "@inquirer/prompts";
 import dotenv from "dotenv";
-import { chmod, mkdir, readFile, writeFile } from "node:fs/promises";
+import { chmod, mkdir, readFile, unlink, writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { homedir } from "node:os";
@@ -11,7 +11,8 @@ const DEFAULT_CONFIG = {
     gitlabProjectPath: "graduacao/2026-1b/t24/g05",
     defaultTargetBranch: "main",
     reviewLabel: "review",
-    doingLabel: "doing"
+    doingLabel: "doing",
+    doneLabel: "done"
 };
 const CONFIG_DIR = path.join(homedir(), ".gl-work");
 const CONFIG_FILE = path.join(CONFIG_DIR, "config.json");
@@ -56,6 +57,12 @@ export async function readProjectStateFile() {
         return null;
     return readFile(stateFile, "utf8");
 }
+export async function clearProjectStateFile() {
+    const stateFile = getProjectStateFile();
+    if (!existsSync(stateFile))
+        return;
+    await unlink(stateFile);
+}
 function resolveConfig(stored) {
     return {
         gitlabBaseUrl: envValue("GITLAB_BASE_URL") ?? stored.gitlabBaseUrl ?? DEFAULT_CONFIG.gitlabBaseUrl,
@@ -63,7 +70,8 @@ function resolveConfig(stored) {
         gitlabToken: envValue("GITLAB_TOKEN") ?? stored.gitlabToken ?? "",
         defaultTargetBranch: envValue("DEFAULT_TARGET_BRANCH") ?? stored.defaultTargetBranch ?? DEFAULT_CONFIG.defaultTargetBranch,
         reviewLabel: envValue("REVIEW_LABEL") ?? stored.reviewLabel ?? DEFAULT_CONFIG.reviewLabel,
-        doingLabel: envValue("DOING_LABEL") ?? stored.doingLabel ?? DEFAULT_CONFIG.doingLabel
+        doingLabel: envValue("DOING_LABEL") ?? stored.doingLabel ?? DEFAULT_CONFIG.doingLabel,
+        doneLabel: envValue("DONE_LABEL") ?? stored.doneLabel ?? DEFAULT_CONFIG.doneLabel
     };
 }
 function printWelcome() {
@@ -121,6 +129,11 @@ async function promptForConfig(stored, showWelcome) {
         default: resolved.doingLabel,
         validate: (value) => value.trim() ? true : "Informe a label de doing."
     });
+    const doneLabel = await input({
+        message: "Label usada quando o issue foi concluido",
+        default: resolved.doneLabel,
+        validate: (value) => value.trim() ? true : "Informe a label de concluido."
+    });
     return {
         hasSeenWelcome: true,
         gitlabToken: gitlabToken.trim(),
@@ -128,7 +141,8 @@ async function promptForConfig(stored, showWelcome) {
         gitlabProjectPath: gitlabProjectPath.trim(),
         defaultTargetBranch: defaultTargetBranch.trim(),
         reviewLabel: reviewLabel.trim(),
-        doingLabel: doingLabel.trim()
+        doingLabel: doingLabel.trim(),
+        doneLabel: doneLabel.trim()
     };
 }
 export async function ensureRuntimeConfig() {
