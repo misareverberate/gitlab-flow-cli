@@ -1,6 +1,6 @@
 {
   "name": "gitlab-flow-cli",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "CLI simples para abrir issues, criar branches e subir merge requests no GitLab com um fluxo padronizado.",
   "license": "MIT",
   "type": "module",
